@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { apiKeys } = require("./env/apiKeys");
 
 const app = express();
 
@@ -11,9 +12,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const EMAIL = process.env.OFFICIAL_EMAIL;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// ---------------- HEALTH ----------------
 app.get("/health", (req, res) => {
   res.status(200).json({
     is_success: true,
@@ -21,7 +20,6 @@ app.get("/health", (req, res) => {
   });
 });
 
-// ---------------- HELPERS ----------------
 function fibonacci(n) {
   if (n <= 0) return [];
   if (n === 1) return [0];
@@ -49,7 +47,6 @@ function lcm(a, b) {
   return (a * b) / gcd(a, b);
 }
 
-// ---------------- BFHL API ----------------
 app.post("/bfhl", async (req, res) => {
   try {
     const body = req.body;
@@ -68,14 +65,34 @@ app.post("/bfhl", async (req, res) => {
       data = body.hcf.reduce((a, b) => gcd(a, b));
     }
     else if (body.AI !== undefined) {
-      const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({ model: "gemini-flash-lite-latest" });
-      const prompt = `Answer in a single word only. No punctuation. Question: ${body.AI}`;
-      const result = await model.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 10, temperature: 0.2 }
-      });
-      data = result.response.text().trim();
+      let lastError;
+      let result;
+      let success = false;
+
+      for (let i = 0; i < apiKeys.length; i++) {
+        try {
+          console.log(`Attempting AI request with API key ${i + 1}/${apiKeys.length}`);
+          const genAI = new GoogleGenerativeAI(apiKeys[i]);
+          const model = genAI.getGenerativeModel({ model: "gemini-flash-lite-latest" });
+          const prompt = `Answer in a single word only. No punctuation. Question: ${body.AI}`;
+          result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: 10, temperature: 0.2 }
+          });
+          data = result.response.text().trim();
+          success = true;
+          console.log(`Success with API key ${i + 1}`);
+          break;
+        } catch (error) {
+          lastError = error;
+          console.log(`API key ${i + 1} failed: ${error.message}`);
+          continue;
+        }
+      }
+
+      if (!success) {
+        throw new Error(`All API keys failed. Last error: ${lastError.message}`);
+      }
     }
     else {
       return res.status(400).json({
@@ -99,7 +116,6 @@ app.post("/bfhl", async (req, res) => {
   }
 });
 
-// ---------------- START SERVER ----------------
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
