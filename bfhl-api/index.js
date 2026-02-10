@@ -1,14 +1,19 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
-const axios = require("axios");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 
-const EMAIL = "deepanshu1645.be23@chitkara.edu.in";
+const PORT = process.env.PORT || 3000;
+const EMAIL = process.env.OFFICIAL_EMAIL;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// GET /health
+// ---------------- HEALTH ----------------
 app.get("/health", (req, res) => {
   res.status(200).json({
     is_success: true,
@@ -16,18 +21,21 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Helper Functions 
+// ---------------- HELPERS ----------------
 function fibonacci(n) {
+  if (n <= 0) return [];
+  if (n === 1) return [0];
+
   let arr = [0, 1];
   for (let i = 2; i < n; i++) {
     arr.push(arr[i - 1] + arr[i - 2]);
   }
-  return arr.slice(0, n);
+  return arr;
 }
 
 function isPrime(n) {
   if (n < 2) return false;
-  for (let i = 2; i <= Math.sqrt(n); i++) {
+  for (let i = 2; i * i <= n; i++) {
     if (n % i === 0) return false;
   }
   return true;
@@ -41,42 +49,38 @@ function lcm(a, b) {
   return (a * b) / gcd(a, b);
 }
 
-// POST /bfhl 
+// ---------------- BFHL API ----------------
 app.post("/bfhl", async (req, res) => {
   try {
     const body = req.body;
-    const key = Object.keys(body)[0];
     let data;
 
-    if (key === "fibonacci") {
+    if (body.fibonacci !== undefined) {
       data = fibonacci(body.fibonacci);
-    } 
-    else if (key === "prime") {
+    }
+    else if (body.prime !== undefined) {
       data = body.prime.filter(isPrime);
-    } 
-    else if (key === "lcm") {
+    }
+    else if (body.lcm !== undefined) {
       data = body.lcm.reduce((a, b) => lcm(a, b));
-    } 
-    else if (key === "hcf") {
+    }
+    else if (body.hcf !== undefined) {
       data = body.hcf.reduce((a, b) => gcd(a, b));
-    } 
-    else if (key === "AI") {
-      const aiRes = await axios.post(
-       `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          contents: [
-            {
-              parts: [{ text: body.AI }]
-            }
-          ]
-        }
-      );
-      data = aiRes.data.candidates[0].content.parts[0].text.split(" ")[0];
-    } 
+    }
+    else if (body.AI !== undefined) {
+      const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({ model: "gemini-flash-lite-latest" });
+      const prompt = `Answer in a single word only. No punctuation. Question: ${body.AI}`;
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 10, temperature: 0.2 }
+      });
+      data = result.response.text().trim();
+    }
     else {
       return res.status(400).json({
         is_success: false,
-        message: "Invalid key"
+        message: "Invalid request body"
       });
     }
 
@@ -87,6 +91,7 @@ app.post("/bfhl", async (req, res) => {
     });
 
   } catch (error) {
+    console.error("ERROR:", error.response?.data || error.message);
     res.status(500).json({
       is_success: false,
       message: "Internal Server Error"
@@ -94,7 +99,7 @@ app.post("/bfhl", async (req, res) => {
   }
 });
 
-// START SERVER 
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
+// ---------------- START SERVER ----------------
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
